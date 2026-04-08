@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工事写真帳 自動生成ツール v0.1 - ホソカワ電気</title>
+<!-- SheetJS (Excel出力) -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- jsPDF (PDF出力) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Hiragino Sans", "Yu Gothic", sans-serif; margin: 0; background: #f5f7fa; color: #222; }
+  header { background: #1e40af; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .ver { font-size: 12px; opacity: 0.8; }
+  .container { display: flex; gap: 16px; padding: 16px; max-width: 1600px; margin: 0 auto; }
+  .panel-left { flex: 0 0 320px; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); height: fit-content; position: sticky; top: 16px; }
+  .panel-right { flex: 1; background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  h2 { font-size: 14px; margin: 0 0 8px; padding-bottom: 6px; border-bottom: 2px solid #1e40af; color: #1e40af; }
+  h2:not(:first-child) { margin-top: 20px; }
+  label { display: block; font-size: 12px; color: #555; margin: 8px 0 2px; }
+  input[type=text], input[type=date], select, textarea {
+    width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 13px; font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 50px; }
+  button {
+    background: #1e40af; color: #fff; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  button:hover { background: #1e3a8a; }
+  button.secondary { background: #64748b; }
+  button.secondary:hover { background: #475569; }
+  button.danger { background: #dc2626; padding: 4px 8px; font-size: 11px; }
+  .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .drop-zone {
+    border: 2px dashed #94a3b8; border-radius: 6px; padding: 24px; text-align: center;
+    color: #64748b; cursor: pointer; transition: all 0.2s; margin-top: 8px;
+  }
+  .drop-zone.drag { border-color: #1e40af; background: #eff6ff; }
+  .photo-grid { display: grid; gap: 12px; margin-top: 12px; }
+  .photo-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .photo-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .photo-grid.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .photo-card {
+    border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; background: #fafafa; cursor: move;
+  }
+  .photo-card.dragging { opacity: 0.4; }
+  .photo-card img { width: 100%; height: 140px; object-fit: cover; border-radius: 4px; background: #ddd; }
+  .photo-no { display: inline-block; background: #1e40af; color: #fff; font-size: 11px; padding: 2px 6px; border-radius: 3px; margin-bottom: 4px; }
+  .photo-card input, .photo-card textarea { font-size: 11px; padding: 4px; margin-top: 3px; }
+  .photo-card .row-flex { display: flex; gap: 4px; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+  .empty { text-align: center; color: #94a3b8; padding: 40px 20px; font-size: 13px; }
+  .stats { font-size: 11px; color: #64748b; margin-top: 4px; }
+  #toast {
+    position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff;
+    padding: 10px 16px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    transform: translateY(100px); opacity: 0; transition: all 0.3s; font-size: 13px;
+  }
+  #toast.show { transform: translateY(0); opacity: 1; }
+  #toast.error { background: #dc2626; }
+  @media (max-width: 900px) {
+    .container { flex-direction: column; }
+    .panel-left { position: static; flex: 1; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📷 工事写真帳 自動生成ツール</h1>
+  <span class="ver">v0.1 MVP / ホソカワ電気</span>
+</header>
+
+<div class="container">
+  <!-- 左パネル：基本情報・設定・出力 -->
+  <div class="panel-left">
+    <h2>基本情報 (F-01)</h2>
+    <label>施設名（事業区域名）</label>
+    <input type="text" id="facilityName" placeholder="例：福島市〇〇太陽光発電所">
+    <label>撮影日</label>
+    <input type="date" id="shootDate">
+    <label>作成日</label>
+    <input type="date" id="createDate">
+    <label>点検実施者（企業名）</label>
+    <input type="text" id="companyName" value="ホソカワ電気">
+    <label>担当者名</label>
+    <input type="text" id="inspectorName">
+    <div class="btn-group">
+      <button class="secondary" onclick="applyDefaultsToAll()" style="font-size:11px;padding:6px 10px;">既存写真にも反映</button>
+    </div>
+
+    <h2>レイアウト (F-02)</h2>
+    <label>1ページあたりの写真枚数</label>
+    <select id="layout">
+      <option value="2">2枚 / ページ</option>
+      <option value="3">3枚 / ページ</option>
+      <option value="4" selected>4枚 / ページ</option>
+      <option value="6">6枚 / ページ</option>
+      <option value="8">8枚 / ページ</option>
+      <option value="12">12枚 / ページ</option>
+    </select>
+
+    <h2>写真追加 (F-03)</h2>
+    <div class="drop-zone" id="dropZone">
+      📥 ここに画像をドロップ<br>
+      <small>またはクリックして選択</small>
+    </div>
+    <input type="file" id="fileInput" accept="image/jpeg,image/png" multiple style="display:none">
+    <div class="stats" id="stats">写真: 0枚</div>
+
+    <h2>出力 (F-05)</h2>
+    <label style="font-size:11px;color:#64748b;">ブラウザ完結版（軽量・画像埋込なし）</label>
+    <div class="btn-group">
+      <button class="secondary" onclick="exportExcel()">📊 Excel(簡易)</button>
+      <button class="secondary" onclick="exportPDF()">📄 PDF(簡易)</button>
+    </div>
+    <label style="font-size:11px;color:#64748b;margin-top:8px;">GAS版（画像埋込・日本語完全対応）</label>
+    <div class="btn-group">
+      <button onclick="exportExcelViaGAS()">📊 Excel(画像埋込)</button>
+      <button onclick="exportPdfViaGAS()">📄 PDF(完全版)</button>
+    </div>
+    <div class="btn-group">
+      <button class="secondary" onclick="pingGAS()" style="font-size:11px;padding:4px 8px;">疎通確認</button>
+    </div>
+
+    <h2>送信 (F-06)</h2>
+    <div class="btn-group">
+      <button class="secondary" onclick="composeMail()">✉️ メール作成</button>
+    </div>
+  </div>
+
+  <!-- 右パネル：写真プレビュー・アノテーション -->
+  <div class="panel-right">
+    <h2>写真プレビュー＆コメント入力 (F-04)</h2>
+    <div id="photoArea">
+      <div class="empty">左パネルから写真をアップロードしてください</div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ============================================================
+ * 工事写真帳 MVP - ES5互換 Vanilla JS
+ * SolarExplainと同じ作法：var使用、function宣言、try-catch必須
+ * ============================================================ */
+
+var photos = []; // {id, dataUrl, no, text1, text2, text3, comment}
+var photoIdSeq = 0;
+var IMAGE_MAX_LONG_SIDE = 1200;
+var IMAGE_QUALITY = 0.8;
+
+/* ---------- 初期化 ---------- */
+(function init() {
+  var today = new Date().toISOString().slice(0, 10);
+  document.getElementById('shootDate').value = today;
+  document.getElementById('createDate').value = today;
+
+  var dropZone = document.getElementById('dropZone');
+  var fileInput = document.getElementById('fileInput');
+  dropZone.addEventListener('click', function () { fileInput.click(); });
+  fileInput.addEventListener('change', function (e) { handleFiles(e.target.files); });
+  dropZone.addEventListener('dragover', function (e) { e.preventDefault(); dropZone.classList.add('drag'); });
+  dropZone.addEventListener('dragleave', function () { dropZone.classList.remove('drag'); });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.classList.remove('drag');
+    handleFiles(e.dataTransfer.files);
+  });
+
+  document.getElementById('layout').addEventListener('change', renderPhotos);
+
+  // 離脱防止 (N-02)
+  window.addEventListener('beforeunload', function (e) {
+    if (photos.length > 0) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+})();
+
+/* ---------- 画像処理 (F-03) ---------- */
+function handleFiles(fileList) {
+  try {
+    var files = Array.prototype.slice.call(fileList);
+    files = files.filter(function (f) { return /image\/(jpeg|png)/.test(f.type); });
+    if (files.length === 0) { toast('画像ファイルを選択してください', true); return; }
+
+    // 大項目=施設名 / 中項目=撮影日 を自動セット
+    var defaultText1 = document.getElementById('facilityName').value || '';
+    var defaultText2 = document.getElementById('shootDate').value || '';
+    var processed = 0;
+    files.forEach(function (file) {
+      compressImage(file, function (dataUrl) {
+        photoIdSeq++;
+        photos.push({
+          id: photoIdSeq,
+          dataUrl: dataUrl,
+          no: photos.length + 1,
+          text1: defaultText1,
+          text2: defaultText2,
+          text3: '',
+          comment: ''
+        });
+        processed++;
+        if (processed === files.length) {
+          renderPhotos();
+          toast(files.length + '枚を追加しました');
+        }
+      });
+    });
+  } catch (err) {
+    console.error('handleFiles error:', err);
+    toast('画像取り込みに失敗: ' + err.message, true);
+  }
+}
+
+function compressImage(file, callback) {
+  var reader = new FileReader();
+  reader.onload = function (e) {
+    var img = new Image();
+    img.onload = function () {
+      var w = img.width, h = img.height;
+      if (w > h && w > IMAGE_MAX_LONG_SIDE) { h = h * IMAGE_MAX_LONG_SIDE / w; w = IMAGE_MAX_LONG_SIDE; }
+      else if (h >= w && h > IMAGE_MAX_LONG_SIDE) { w = w * IMAGE_MAX_LONG_SIDE / h; h = IMAGE_MAX_LONG_SIDE; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      callback(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+/* ---------- レンダリング (F-04) ---------- */
+function renderPhotos() {
+  var area = document.getElementById('photoArea');
+  var stats = document.getElementById('stats');
+  if (photos.length === 0) {
+    area.innerHTML = '<div class="empty">左パネルから写真をアップロードしてください</div>';
+    stats.textContent = '写真: 0枚';
+    return;
+  }
+  var layout = parseInt(document.getElementById('layout').value, 10);
+  var pages = Math.ceil(photos.length / layout);
+  stats.textContent = '写真: ' + photos.length + '枚 / ' + pages + 'ページ';
+
+  var cols = layout <= 2 ? 2 : (layout <= 6 ? 3 : 4);
+  var html = '<div class="photo-grid cols-' + (cols === 2 ? 2 : (cols === 3 ? 3 : 4)) + '">';
+  photos.forEach(function (p, idx) {
+    html += '<div class="photo-card" draggable="true" data-id="' + p.id + '">';
+    html += '  <div class="row-flex">';
+    html += '    <span class="photo-no">No.' + p.no + '</span>';
+    html += '    <button class="danger" onclick="removePhoto(' + p.id + ')">削除</button>';
+    html += '  </div>';
+    html += '  <img src="' + p.dataUrl + '" alt="">';
+    html += '  <input type="text" placeholder="大項目（工種・対象設備）" value="' + esc(p.text1) + '" onchange="updatePhoto(' + p.id + ',\'text1\',this.value)">';
+    html += '  <input type="text" placeholder="中項目（箇所・部品名）" value="' + esc(p.text2) + '" onchange="updatePhoto(' + p.id + ',\'text2\',this.value)">';
+    html += '  <input type="text" placeholder="小項目（仕様・状態）" value="' + esc(p.text3) + '" onchange="updatePhoto(' + p.id + ',\'text3\',this.value)">';
+    html += '  <textarea placeholder="フリーコメント" onchange="updatePhoto(' + p.id + ',\'comment\',this.value)">' + esc(p.comment) + '</textarea>';
+    html += '</div>';
+  });
+  html += '</div>';
+  area.innerHTML = html;
+  attachDragHandlers();
+}
+
+function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+function updatePhoto(id, field, value) {
+  for (var i = 0; i < photos.length; i++) {
+    if (photos[i].id === id) { photos[i][field] = value; return; }
+  }
+}
+
+function removePhoto(id) {
+  photos = photos.filter(function (p) { return p.id !== id; });
+  reNumber();
+  renderPhotos();
+}
+
+function reNumber() {
+  photos.forEach(function (p, i) { p.no = i + 1; });
+}
+
+// 施設名・撮影日を既存全写真に一括反映
+function applyDefaultsToAll() {
+  try {
+    var f = document.getElementById('facilityName').value || '';
+    var d = document.getElementById('shootDate').value || '';
+    photos.forEach(function (p) { p.text1 = f; p.text2 = d; });
+    renderPhotos();
+    toast(photos.length + '枚に反映しました');
+  } catch (err) {
+    toast('反映失敗: ' + err.message, true);
+  }
+}
+
+/* ---------- ドラッグ並び替え ---------- */
+var dragSrcId = null;
+function attachDragHandlers() {
+  var cards = document.querySelectorAll('.photo-card');
+  cards.forEach(function (card) {
+    card.addEventListener('dragstart', function (e) {
+      dragSrcId = parseInt(card.getAttribute('data-id'), 10);
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', function () { card.classList.remove('dragging'); });
+    card.addEventListener('dragover', function (e) { e.preventDefault(); });
+    card.addEventListener('drop', function (e) {
+      e.preventDefault();
+      var tgtId = parseInt(card.getAttribute('data-id'), 10);
+      if (dragSrcId === null || dragSrcId === tgtId) return;
+      var srcIdx = -1, tgtIdx = -1;
+      for (var i = 0; i < photos.length; i++) {
+        if (photos[i].id === dragSrcId) srcIdx = i;
+        if (photos[i].id === tgtId) tgtIdx = i;
+      }
+      if (srcIdx >= 0 && tgtIdx >= 0) {
+        var moved = photos.splice(srcIdx, 1)[0];
+        photos.splice(tgtIdx, 0, moved);
+        reNumber();
+        renderPhotos();
+      }
+    });
+  });
+}
+
+/* ---------- Excel出力 (F-05-a) ---------- */
+function exportExcel() {
+  try {
+    if (photos.length === 0) { toast('写真がありません', true); return; }
+    var wb = XLSX.utils.book_new();
+    var header = [
+      ['工事写真帳'],
+      ['施設名', document.getElementById('facilityName').value],
+      ['撮影日', document.getElementById('shootDate').value],
+      ['作成日', document.getElementById('createDate').value],
+      ['点検実施者', document.getElementById('companyName').value + ' / ' + document.getElementById('inspectorName').value],
+      [],
+      ['No.', '大項目', '中項目', '小項目', 'フリーコメント']
+    ];
+    photos.forEach(function (p) {
+      header.push([p.no, p.text1, p.text2, p.text3, p.comment]);
+    });
+    var ws = XLSX.utils.aoa_to_sheet(header);
+    ws['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 40 }];
+    XLSX.utils.book_append_sheet(wb, ws, '工事写真帳');
+    // 注: 画像埋め込みはSheetJS Community版未対応のため、Phase1.5で
+    // GAS側 (callGAS:'savePhotoBookXlsx') 経由でDriveAPIから生成する方針
+    var fname = '工事写真帳_' + (document.getElementById('facilityName').value || 'untitled') + '_' + dateStamp() + '.xlsx';
+    XLSX.writeFile(wb, fname);
+    toast('Excelを出力しました（※画像埋め込みはPhase1.5でGAS連携）');
+  } catch (err) {
+    console.error('exportExcel error:', err);
+    toast('Excel出力失敗: ' + err.message, true);
+  }
+}
+
+/* ---------- PDF出力 (F-05-b) ---------- */
+// 日本語フォント (NotoSansJP) を動的ロード・キャッシュ
+var jpFontBase64 = null;
+var JP_FONT_URL = 'https://cdn.jsdelivr.net/npm/noto-sans-jp@1.0.0/NotoSansJP-Regular.otf';
+
+function loadJpFont(callback) {
+  if (jpFontBase64) { callback(jpFontBase64); return; }
+  toast('日本語フォント読込中...');
+  fetch(JP_FONT_URL)
+    .then(function (res) {
+      if (!res.ok) throw new Error('font fetch failed: ' + res.status);
+      return res.arrayBuffer();
+    })
+    .then(function (buf) {
+      var bytes = new Uint8Array(buf);
+      var binary = '';
+      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      jpFontBase64 = btoa(binary);
+      callback(jpFontBase64);
+    })
+    .catch(function (err) {
+      console.error('font load error:', err);
+      toast('フォント読込失敗。英字モードで出力します', true);
+      callback(null);
+    });
+}
+
+function exportPDF() {
+  try {
+    if (photos.length === 0) { toast('写真がありません', true); return; }
+    loadJpFont(function (fontB64) { renderPdf(fontB64); });
+  } catch (err) {
+    console.error('exportPDF error:', err);
+    toast('PDF出力失敗: ' + err.message, true);
+  }
+}
+
+function renderPdf(fontB64) {
+  try {
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+    // 日本語フォント登録
+    var hasJp = false;
+    if (fontB64) {
+      doc.addFileToVFS('NotoSansJP.otf', fontB64);
+      doc.addFont('NotoSansJP.otf', 'NotoSansJP', 'normal');
+      doc.setFont('NotoSansJP');
+      hasJp = true;
+    }
+
+    var layout = parseInt(document.getElementById('layout').value, 10);
+    var facility = document.getElementById('facilityName').value || '（施設名未入力）';
+    var shootDate = document.getElementById('shootDate').value;
+    var company = document.getElementById('companyName').value;
+
+    // PDFタイトル: 施設名＋点検報告書
+    var pdfTitle = facility + '　点検報告書';
+
+    // A4: 210x297mm. 余白10mm
+    var pageW = 210, pageH = 297, margin = 10;
+    var contentW = pageW - margin * 2;
+    var headerH = 20;
+
+    var grid = { 2: [1, 2], 3: [1, 3], 4: [2, 2], 6: [2, 3], 8: [2, 4], 12: [3, 4] };
+    var g = grid[layout] || [2, 2];
+    var cols = g[0], rows = g[1];
+    var contentH = pageH - margin * 2 - headerH;
+    var cellW = contentW / cols;
+    var cellH = contentH / rows;
+    var imgH = cellH * 0.65;
+
+    var pageCount = Math.ceil(photos.length / layout);
+    for (var page = 0; page < pageCount; page++) {
+      if (page > 0) doc.addPage();
+      // ヘッダー
+      doc.setFontSize(14);
+      doc.text(safeJp(pdfTitle, hasJp), margin, margin + 7);
+      doc.setFontSize(9);
+      doc.text(
+        safeJp('撮影日: ' + shootDate + '   実施者: ' + company + '   ' + (page + 1) + '/' + pageCount + ' ページ', hasJp),
+        margin, margin + 13
+      );
+      doc.line(margin, margin + 15, pageW - margin, margin + 15);
+
+      for (var i = 0; i < layout; i++) {
+        var idx = page * layout + i;
+        if (idx >= photos.length) break;
+        var p = photos[idx];
+        var col = i % cols;
+        var row = Math.floor(i / cols);
+        var x = margin + col * cellW;
+        var y = margin + headerH + row * cellH;
+        try {
+          doc.addImage(p.dataUrl, 'JPEG', x + 2, y + 2, cellW - 4, imgH - 4);
+        } catch (e) { /* skip */ }
+        doc.setFontSize(8);
+        doc.text(safeJp('No.' + p.no, hasJp), x + 2, y + imgH + 4);
+        var lines = [p.text1, p.text2, p.text3, (p.comment || '').substring(0, 60)];
+        for (var li = 0; li < lines.length; li++) {
+          if (lines[li]) doc.text(safeJp(lines[li].substring(0, 35), hasJp), x + 12, y + imgH + 4 + li * 3.5);
+        }
+        doc.rect(x + 1, y + 1, cellW - 2, cellH - 2);
+      }
+    }
+    var fname = (facility || 'photobook') + '_点検報告書_' + dateStamp() + '.pdf';
+    doc.save(fname);
+    toast('PDFを出力しました');
+  } catch (err) {
+    console.error('renderPdf error:', err);
+    toast('PDF生成失敗: ' + err.message, true);
+  }
+}
+
+// フォント未ロード時のフォールバック
+function safeJp(s, hasJp) {
+  if (!s) return '';
+  if (hasJp) return s;
+  return /[^\x00-\x7F]/.test(s) ? s.replace(/[^\x00-\x7F]/g, '?') : s;
+}
+
+/* ---------- メール連携 (F-06 アプローチA) ---------- */
+function composeMail() {
+  try {
+    var facility = document.getElementById('facilityName').value || '（施設名）';
+    var date = document.getElementById('shootDate').value;
+    var subject = encodeURIComponent('【点検報告】工事写真帳の送付 - ' + facility);
+    var body = encodeURIComponent(
+      'お世話になっております。ホソカワ電気でございます。\n\n' +
+      '下記施設の点検にかかる工事写真帳を送付いたします。\n\n' +
+      '■ 施設名: ' + facility + '\n' +
+      '■ 撮影日: ' + date + '\n' +
+      '■ 写真枚数: ' + photos.length + '枚\n\n' +
+      '※添付ファイルは別途、ダウンロード済みのExcel/PDFを手動で添付してください。\n\n' +
+      'よろしくお願いいたします。'
+    );
+    window.location.href = 'mailto:?subject=' + subject + '&body=' + body;
+  } catch (err) {
+    toast('メール作成失敗: ' + err.message, true);
+  }
+}
+
+/* ---------- ユーティリティ ---------- */
+function dateStamp() {
+  var d = new Date();
+  return d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2);
+}
+
+function toast(msg, isError) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = isError ? 'show error' : 'show';
+  setTimeout(function () { el.className = ''; }, 3000);
+}
+
+/* ============================================================
+ * Phase1.5: GAS連携 (callGAS パターン - SolarExplain互換)
+ * ============================================================ */
+
+// ★ デプロイ後にGAS WebApp URLをここに設定 ★
+var GAS_URL = 'PUT_YOUR_GAS_WEBAPP_URL_HERE';
+
+/**
+ * SolarExplain互換 callGAS()
+ * @param {string} action - ACTION_MAPのキー
+ * @param {object} payload
+ * @param {function} onSuccess - (result) => void
+ * @param {function} onError - (errorMsg) => void
+ */
+function callGAS(action, payload, onSuccess, onError) {
+  if (!GAS_URL || GAS_URL.indexOf('PUT_YOUR') === 0) {
+    var msg = 'GAS_URL未設定です。index.html上部のGAS_URL定数を設定してください';
+    console.error(msg);
+    if (onError) onError(msg);
+    return;
+  }
+  toast('GAS処理中...（10〜30秒）');
+  fetch(GAS_URL, {
+    method: 'POST',
+    body: JSON.stringify({ action: action, payload: payload }),
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' } // CORS preflight回避
+  })
+    .then(function (res) { return res.json(); })
+    .then(function (result) {
+      console.log('[callGAS] action=' + action + ' result:', result);
+      if (result.status === 'OK') {
+        if (onSuccess) onSuccess(result);
+      } else {
+        var emsg = '[' + action + '] ' + (result.message || 'unknown error');
+        if (result.hint) emsg += '\nヒント: ' + result.hint;
+        console.error(emsg);
+        if (onError) onError(emsg);
+      }
+    })
+    .catch(function (err) {
+      console.error('[callGAS] fetch error:', err);
+      if (onError) onError('通信失敗: ' + err.message);
+    });
+}
+
+/**
+ * GAS版: 画像埋込済みExcel生成
+ * フロントの photos[] を GASに送信し、SpreadsheetApp.insertImage() で画像を埋込
+ */
+function exportExcelViaGAS() {
+  try {
+    if (photos.length === 0) { toast('写真がありません', true); return; }
+    var payload = {
+      meta: collectMeta(),
+      layout: parseInt(document.getElementById('layout').value, 10),
+      photos: photos.map(function (p) {
+        return {
+          no: p.no,
+          text1: p.text1,
+          text2: p.text2,
+          text3: p.text3,
+          comment: p.comment,
+          imageBase64: p.dataUrl // data:image/jpeg;base64,xxx 形式のまま送信
+        };
+      })
+    };
+    callGAS('savePhotoBookXlsx', payload,
+      function (result) {
+        toast('Excel生成完了 ' + result.elapsedSec + 's');
+        window.open(result.fileUrl, '_blank');
+      },
+      function (errMsg) { toast(errMsg, true); }
+    );
+  } catch (err) {
+    toast('exportExcelViaGAS失敗: ' + err.message, true);
+  }
+}
+
+/**
+ * GAS版: PDF生成 (Spreadsheet → PDF変換、日本語完全対応)
+ */
+function exportPdfViaGAS() {
+  try {
+    if (photos.length === 0) { toast('写真がありません', true); return; }
+    var payload = {
+      meta: collectMeta(),
+      layout: parseInt(document.getElementById('layout').value, 10),
+      photos: photos.map(function (p) {
+        return {
+          no: p.no, text1: p.text1, text2: p.text2, text3: p.text3,
+          comment: p.comment, imageBase64: p.dataUrl
+        };
+      })
+    };
+    callGAS('savePhotoBookPdf', payload,
+      function (result) {
+        toast('PDF生成完了 ' + result.elapsedSec + 's');
+        window.open(result.fileUrl, '_blank');
+      },
+      function (errMsg) { toast(errMsg, true); }
+    );
+  } catch (err) {
+    toast('exportPdfViaGAS失敗: ' + err.message, true);
+  }
+}
+
+function collectMeta() {
+  return {
+    facilityName: document.getElementById('facilityName').value,
+    shootDate: document.getElementById('shootDate').value,
+    createDate: document.getElementById('createDate').value,
+    companyName: document.getElementById('companyName').value,
+    inspectorName: document.getElementById('inspectorName').value
+  };
+}
+
+/**
+ * GAS疎通確認
+ */
+function pingGAS() {
+  callGAS('ping', { from: 'frontend' },
+    function (result) { toast('GAS疎通OK: ' + result.message); },
+    function (errMsg) { toast(errMsg, true); }
+  );
+}
+</script>
+</body>
+</html>
