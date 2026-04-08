@@ -362,7 +362,7 @@ function exportExcel() {
 /* ---------- PDF出力 (F-05-b) ---------- */
 // 日本語フォント (NotoSansJP) を動的ロード・キャッシュ
 var jpFontBase64 = null;
-var JP_FONT_URL = 'https://cdn.jsdelivr.net/npm/noto-sans-jp@1.0.0/NotoSansJP-Regular.otf';
+var JP_FONT_URL = 'https://fonts.gstatic.com/s/notosansjp/v53/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj75vY0rw-oME.ttf';
 
 function loadJpFont(callback) {
   if (jpFontBase64) { callback(jpFontBase64); return; }
@@ -404,8 +404,8 @@ function renderPdf(fontB64) {
     // 日本語フォント登録
     var hasJp = false;
     if (fontB64) {
-      doc.addFileToVFS('NotoSansJP.otf', fontB64);
-      doc.addFont('NotoSansJP.otf', 'NotoSansJP', 'normal');
+      doc.addFileToVFS('NotoSansJP.ttf', fontB64);
+　　　 doc.addFont('NotoSansJP.ttf', 'NotoSansJP', 'normal');
       doc.setFont('NotoSansJP');
       hasJp = true;
     }
